@@ -1,0 +1,522 @@
+---
+title: "ICMS"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+
+runtime: shiny
+---
+
+```{r opcao}
+options(scipen=999)
+```
+
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(gapminder)
+library(shiny)
+library(tidyverse)
+library(readxl)
+library(DT)
+library(plotly)
+library(gganimate)
+library(lubridate)
+library(shiny)
+library(ggcharts)
+library(scales)
+
+```
+
+
+```{r funcoes}
+
+escala <- function(x){case_when(
+  abs(x) < 1000 ~ "",
+  abs(x) >= 1000  & abs(x) < 1000000 ~ "K",
+  abs(x) >= 1000000  & abs(x) < 1000000000 ~ "Mi",
+  abs(x) >= 1000000000  & abs(x) < 1000000000000 ~ "Bi",
+  abs(x) >= 1000000000000  & abs(x) < 1000000000000000 ~ "trilhão",
+  TRUE ~ "maior que trilhão"
+)}
+
+divisor <- function(x){case_when(
+  abs(x) < 1000 ~ x,
+  abs(x) >= 1000  & abs(x) < 1000000 ~ round(x/1000,digits = 2),
+  abs(x) >= 1000000  & abs(x) < 1000000000 ~ round(x/1000000, digits = 2),
+  abs(x) >= 1000000000  & abs(x) < 1000000000000 ~ round (x/1000000000, digits = 2),
+  abs(x) >= 1000000000000  & abs(x) < 1000000000000000 ~ round (x/1000000000000, digits = 2),
+  TRUE ~ x
+)}
+```
+
+
+
+```{r df_bimestre}
+
+
+# importar df com dados da arrecadação de ICMS
+df_icms<-read_csv("df_icms.csv")
+
+# criar df para comparar dois períodos. Neste caso comparamos o segundo bimeste de 2019 com o segundo bimestre de 2018
+df_icms_bimestre<-df_icms %>%
+                  # filtrar meses e anos
+                  filter(month(mes_ano) %in% c(3,4), exercicio %in% c(2019,2018)) %>% 
+                  # agrupar por UF e ano (exercício)
+                  group_by(uf, exercicio) %>%
+                  # somar o valor do período (neste caso o valor do segundo bimestre)
+                  summarise(valor = sum(valor))
+
+#https://r4ds.had.co.nz/tidy-data.html#pivoting
+# pivotar a tabela para levar transportar os exercícios das linhas para as colunas
+df_icms_bimestre<-df_icms_bimestre %>% pivot_wider(names_from = exercicio, values_from = valor)%>%
+                                      # criar variávies para medir a variação entre os bimestres.
+                                      # Reais para variação em reais e percentual para a variação em percentual
+                                       mutate (reais = `2019`-`2018`, percentual = (round((reais/`2018`)*100, digits = 1)))
+
+
+
+
+```
+
+
+
+```{r df_icms}
+df_icms<- read_csv("df_icms.csv")
+df_icms_mes<-df_icms %>%
+  filter (startsWith(coluna, "<MR"))
+
+
+
+df_icms_mes<- df_icms_mes %>% 
+  mutate (mr = case_when(
+  periodicidade == "Q"  ~ periodo*4,
+  periodicidade == "B"  ~ periodo*2
+))
+
+
+df_icms_mes<- df_icms_mes %>% 
+  mutate(mr = as.integer(mr)) %>% 
+  mutate (mr_mes = str_replace_all(coluna, c("<MR" = "", ">" = ""))) %>% 
+  mutate (mes = case_when(
+    mr_mes == "" ~ mr,
+    TRUE ~  mr + (as.integer(mr_mes)))) %>% 
+  mutate(mes_ano= paste0(exercicio,"-",mes,"-01")) %>% 
+  mutate (mes_ano = (as.Date(mes_ano))) %>% 
+  mutate (final_mes =  ceiling_date(mes_ano, unit = "days")) %>% 
+  mutate (mes_plot = format(mes_ano_end, format="%m/%Y"))
+
+
+#https://stackoverflow.com/questions/43772996/r-calculate-month-end
+df_icms_mes$mes_ano_end <- df_icms_mes$mes_ano
+day(df_icms_mes$mes_ano_end) <- days_in_month(df_icms_mes$mes_ano)
+            
+
+# https://goodekat.github.io/presentations/2019-isugg-gganimate-spooky/slides.html#11
+# https://lubridate.tidyverse.org/reference/guess_formats.html
+
+df_icms_mes<- df_icms_mes%>% mutate(ano_mes = paste0(year(mes_ano_end),month(mes_ano_end)))
+
+```
+
+
+```{r}
+
+```
+
+
+Arrecadação em todo o país
+=============================================
+Row {data-height=30}
+-----------------------------------------------------------------------
+
+### arrecadação março e abril 2018
+```{r arrecadação 2018 br}
+flexdashboard::renderValueBox({
+  
+    valor <-  sum(df_icms_bimestre$'2018') 
+    valueBox(
+    paste0("R$ ", divisor(valor)," ",  escala(valor)),
+    "março e abril 2018",
+    color = "grey"
+      
+    )
+  })
+
+```
+
+
+### arrecadação março e abril 2019
+```{r arrecadação 2019 br}
+flexdashboard::renderValueBox({
+  
+  valor <-  sum(df_icms_bimestre$'2019') 
+    valueBox(
+   paste0("R$ ", divisor(valor)," ",  escala(valor)),
+    "março e abril 2019",
+    color = "purple"
+    )
+  })
+
+```
+
+### evolucao em reais
+```{r evolucao em reais br }
+
+
+flexdashboard::renderValueBox({
+    
+    valor <- sum(df_icms_bimestre$reais)
+    valueBox(
+    paste0("R$ ",  divisor(valor), " ", escala(valor)), 
+      "evolução em R$", 
+      color = if (valor <= 0) "red" else "blue"
+    )
+  })
+
+```
+
+
+### evolucao percentual
+```{r evolucao percentual br}
+flexdashboard::renderValueBox({
+  
+  percentual <- round(((sum(df_icms_bimestre$'2019')-sum(df_icms_bimestre$'2018'))/sum(df_icms_bimestre$'2018'))*100, digits = 1)
+  valueBox(
+      paste0(percentual,"%"),
+      "evolução percentual",
+      color = if (percentual <= 0) "red" else "blue"
+    )
+  })
+
+```
+
+
+
+Row
+-----------------------------------------------------------------------
+### ranking março abril/2019 (percentual)
+
+```{r}
+renderPlotly({
+  
+ 
+
+
+
+ pcent<- ggplot( df_icms_bimestre, aes(  x= reorder (uf,  percentual), y=percentual, label = percentual)) +
+   geom_segment( aes(xend=uf, yend=0),  color=if_else(df_icms_bimestre$percentual > 0, "blue", "red")) +
+    geom_point( size=2, color=if_else(df_icms_bimestre$percentual > 0, "blue", "red")) +
+    coord_flip() +
+    theme_bw() +
+    xlab("")  
+  
+ggplotly(pcent)  
+
+
+
+})
+
+```
+
+### ranking março abril/2019 (reais)
+
+```{r ranking reais}
+renderPlotly({
+
+
+
+ preais<- ggplot( df_icms_bimestre, aes(  x= reorder (uf,  reais), y=reais, label = reais)) +
+    geom_segment( aes(xend=uf, yend=0),  color=if_else(df_icms_bimestre$reais > 0, "blue", "red")) +
+    geom_point( size=2, color=if_else(df_icms_bimestre$reais > 0, "blue", "red")) +
+    coord_flip() +
+    theme_bw() +
+    xlab("") 
+  
+ggplotly(preais)  
+})
+
+```
+Column
+----------------------------------------------------------------------
+Row
+--------------------------------------------------------------------------
+
+### arrecadação de icms
+
+
+```{r ranking percentual}
+renderPlotly({
+  
+  df_br<-df_icms %>% group_by(mes_ano_end) %>% summarise(valor = sum(valor))
+
+ historico<- ggplot( df_br, aes(  x= mes_ano_end  , y=valor),  color = "blue") +
+    geom_line() +
+    theme_bw() +
+    xlab("") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+  
+ggplotly(historico)  
+})
+
+
+```
+
+
+
+### Comparativo anual
+
+
+
+```{r comparativo anual br}
+# https://plotly.com/r/cumulative-animations/
+
+
+
+
+
+renderPlotly({
+df_ano<-df_icms   %>%  group_by(exercicio, mes_ano) %>% summarise(valor = sum(valor)) %>% mutate (mes = month(mes_ano))
+
+
+df_ano$mes <- factor(df_ano$mes)
+df_ano$exercicio <- as.numeric(df_ano$exercicio)
+df_ano$mes<- as.numeric(df_ano$mes)
+
+#https://forcats.tidyverse.org/reference/fct_rev.html
+df_ano$exercicio<- fct_rev(factor(df_ano$exercicio))
+
+p<-ggplot() + geom_line(data = df_ano, aes(x = mes, y = divisor(valor), color = exercicio))+
+      scale_color_manual(breaks = levels(df_ano$exercicio),
+                         values=c("purple", "gray1", "gray25", "gray50", "gray75", "gray100"))+
+                        theme_classic()+
+                        scale_x_continuous(breaks=c(4,8,12),
+                                          labels=c("abril", "agosto", "dezembro"))+
+  labs(title = paste0("em ", escala(df_ano$valor)," R$"),
+              subtitle = "Plot of length by dose",
+              caption = "Data source: ToothGrowth")
+                        
+                        #values=c("blue", rep("gray", length(unique(df_ano$exercicio))-1)))
+
+ggplotly(p)
+
+
+})
+```
+
+```{r eval=FALSE, include=FALSE}
+# https://plotly.com/r/cumulative-animations/
+
+
+
+df_2019<-df_icms_mes %>% arrange(mes_ano) %>% group_by(mes_ano) %>% summarise(icms = sum(valor)) %>% mutate (data_decimal = decimal_date(mes_ano))
+df <- df_2019  %>% mutate(icms = icms/1000000000)
+
+df$ID <- seq.int(nrow(df))
+
+df <- df %>% accumulate_by(~data_decimal)
+fig <- df %>% plot_ly(
+  x = ~data_decimal, 
+  y = ~icms, 
+  frame = ~frame,
+  type = 'scatter', 
+  mode = 'lines', 
+  fill = 'tozeroy', 
+  fillcolor='rgba(114, 186, 59, 0.5)',
+  line = list(color = 'rgb(600, 186, 59)'),
+  text = ~paste("Day: ", data_decimal, "<br>Close: $", icms), 
+  hoverinfo = 'text')
+fig <- fig %>% layout(
+  xaxis = list(
+    title = "Date",
+    zeroline = F
+  ),
+  yaxis = list(
+    title = "Median",
+    zeroline = F
+  )
+) 
+fig <- fig %>% animation_opts(
+  frame = 100, 
+  transition = 0, 
+  redraw = FALSE
+)
+fig <- fig %>% animation_slider(
+  hide = T
+)
+fig <- fig %>% animation_button(
+  x = 1, xanchor = "right", y = 0, yanchor = "botton"
+)
+
+fig
+```
+
+
+Arrecadação por UF
+======================================================================
+
+
+Selecione a UF {.sidebar data-height=30}
+-------------------------------------
+
+
+### escolha a uf
+
+
+
+```{r input$uf}
+
+
+
+selectInput("uf", label ="", 
+    choices = unique(df_icms_bimestre$uf), 
+    selected = "SC")
+
+
+
+```
+
+
+
+
+
+Row {data-height=30}
+-----------------------------------------------------------------------
+
+
+
+### arrecadação março e abril 2018
+```{r arrecadação 2018 uf}
+flexdashboard::renderValueBox({
+  
+  valor <- bimestre()$'2018'
+    valueBox(
+    paste0("R$ ", divisor(valor)," ",  escala(valor)),
+    "março e abril 2018",
+    color = "grey"
+      
+    )
+  })
+
+```
+
+
+### arrecadação março e abril 2019
+```{r arrecadação 2019 uf}
+flexdashboard::renderValueBox({
+  valor <- bimestre()$'2019'
+    valueBox(
+    paste0("R$ ", divisor(valor)," ",  escala(valor)),
+    "março e abril 2019",
+    color = "purple" 
+    )
+  })
+
+```
+
+### evolucao em reais
+```{r evolucao em reais uf}
+
+
+flexdashboard::renderValueBox({
+  
+  valor<-bimestre()$reais
+    valueBox(
+       paste0("R$ ",  divisor(valor), " ", escala(valor)), 
+      "evolução em R$", 
+      color = if (valor <= 0) "red" else "blue"
+    )
+  })
+
+```
+
+
+### evolucao percentual
+```{r evolucao percentual uf}
+flexdashboard::renderValueBox({
+    valueBox(
+       paste0(bimestre()$percentual,"%"),
+      "evolução percentual",
+      color = if (bimestre()$percentual<= 0) "red" else "blue"
+    )
+  })
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+
+
+
+### Comparativo anual
+
+
+
+```{r comparativo anual}
+# https://plotly.com/r/cumulative-animations/
+
+
+
+
+
+renderPlotly({
+df_ano<-df_icms  %>% filter(uf == input$uf) %>%  group_by(exercicio, mes_ano) %>% summarise(valor = sum(valor)/1000000000) %>% mutate (mes = month(mes_ano))
+
+
+df_ano$mes <- factor(df_ano$mes)
+df_ano$exercicio <- as.numeric(df_ano$exercicio)
+df_ano$mes<- as.numeric(df_ano$mes)
+
+#https://forcats.tidyverse.org/reference/fct_rev.html
+df_ano$exercicio<- fct_rev(factor(df_ano$exercicio))
+
+p<-ggplot() + geom_line(data = df_ano, aes(x = mes, y = valor, color = exercicio))+
+      scale_color_manual(breaks = levels(df_ano$exercicio),
+                         values=c("purple", "gray1", "gray25", "gray50", "gray75", "gray100"))+
+                        theme_classic()+
+      scale_x_continuous(breaks=c(4,8,12),
+                        labels=c("abril", "agosto", "dezembro"))
+              
+                        
+                        #values=c("blue", rep("gray", length(unique(df_ano$exercicio))-1)))
+
+ggplotly(p)
+
+})
+```
+
+
+
+```{r reactive bimestre}
+bimestre <- reactive({df_icms_bimestre %>% filter (uf == input$uf)})
+```
+
+
+Row
+----------------------------------------------------
+
+### historico
+
+```{r serie temporal}
+
+renderPlotly({
+historico_uf<- ggplot( df_icms %>% filter(uf == input$uf), aes(  x= mes_ano_end  , y=valor), color = "blue") +
+    geom_line() +
+    theme_bw() +
+    xlab("") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+  
+ggplotly(historico_uf)  
+})
+
+
+
+
+# https://ggplot2.tidyverse.org/reference/scale_date.html
+
+#https://rpubs.com/Mentors_Ubiqum/ggplot_geom_line_1
+```
+
+
